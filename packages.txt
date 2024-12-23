@@ -1,0 +1,5 @@
+
+python3-dev
+portaudio19-dev
+libportaudio2
+ffmpeg
