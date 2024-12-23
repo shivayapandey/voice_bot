@@ -108,12 +108,24 @@ if 'mic_initialized' not in st.session_state:
 
 def initialize_audio():
     try:
-        pygame.mixer.init()
+        # Try different audio configurations
+        try:
+            pygame.mixer.init(frequency=24000, size=-16, channels=1)
+        except pygame.error:
+            try:
+                pygame.mixer.init(frequency=44100)
+            except pygame.error:
+                try:
+                    # Try SDL audio driver
+                    os.environ['SDL_AUDIODRIVER'] = 'dsp'
+                    pygame.mixer.init()
+                except:
+                    st.warning("⚠️ Audio playback disabled - no audio device available")
+                    return False
     except Exception as e:
-        st.warning("⚠️ Audio output might not work properly on this system.")
-
-# Initialize audio
-initialize_audio()
+        st.warning(f"⚠️ Audio initialization error: {str(e)}")
+        return False
+    return True
 
 # Initialize clients with provided keys
 @st.cache_resource
@@ -145,8 +157,7 @@ class OptimizedAudioPlayer:
     def __init__(self):
         self._stop_event = threading.Event()
         self.VOICE = "en-US-JennyNeural"
-        self.audio_enabled = True
-        pygame.mixer.init(frequency=24000)  # Initialize with specific frequency
+        self.audio_enabled = initialize_audio()
     
     def stop(self):
         if self.audio_enabled:
@@ -164,6 +175,10 @@ class OptimizedAudioPlayer:
         if not text:
             return
             
+        if not self.audio_enabled:
+            st.write(text)  # Fallback to displaying text
+            return
+            
         self._stop_event.clear()
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
@@ -172,18 +187,21 @@ class OptimizedAudioPlayer:
             # Generate speech
             asyncio.run(self._generate_speech(text, temp_path))
             
-            # Ensure previous playback is stopped
-            pygame.mixer.music.unload()
-            pygame.mixer.music.load(temp_path)
-            pygame.mixer.music.play()
-            
-            # Wait for playback to finish
-            while pygame.mixer.music.get_busy():
-                if self._stop_event.is_set():
-                    pygame.mixer.music.stop()
-                    break
-                time.sleep(0.1)
+            try:
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init()
+                pygame.mixer.music.load(temp_path)
+                pygame.mixer.music.play()
                 
+                while pygame.mixer.music.get_busy():
+                    if self._stop_event.is_set():
+                        pygame.mixer.music.stop()
+                        break
+                    time.sleep(0.1)
+            except Exception as e:
+                st.error(f"Playback error: {str(e)}")
+                st.write(text)
+            
             os.unlink(temp_path)
             
         except Exception as e:
