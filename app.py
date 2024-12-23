@@ -335,7 +335,7 @@ with col2:
                 if user_text:
                     process_response(user_text, is_voice=True)
                 os.unlink(audio_file)
-            st.experimental_rerun()
+            st.rerun()  # Changed from experimental_rerun
         except Exception as e:
             st.error(f"Error processing audio: {str(e)}")
 
@@ -343,7 +343,7 @@ with col2:
 if text_input and text_input != st.session_state.processed_text:
     st.session_state.processed_text = text_input
     process_response(text_input)
-    st.experimental_rerun()
+    st.rerun()  # Changed from experimental_rerun
 
 # Clear chat button
 if st.button("🗑️ Clear Chat", key="clear", help="Clear all messages"):
@@ -351,4 +351,4 @@ if st.button("🗑️ Clear Chat", key="clear", help="Clear all messages"):
         st.session_state.audio_player.stop()
     st.session_state.history = []
     st.session_state.processed_text = None
-    st.experimental_rerun()
+    st.rerun()  # Changed from experimental_rerun
