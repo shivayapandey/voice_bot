@@ -1,7 +1,7 @@
 setuptools>=65.5.1
 wheel>=0.38.0
 streamlit
-streamlit_audiorec
+streamlit-audiorec
 protobuf==3.20.0
 numpy<2.0.0,>=1.21.6
 --extra-index-url https://download.pytorch.org/whl/cpu
