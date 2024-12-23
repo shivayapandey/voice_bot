@@ -222,7 +222,15 @@ class OptimizedAudioRecorder:
         self.dtype = np.int16
         self.recording = False
         self.audio_data = []
-
+        self.stream = None
+        
+        # Get default input device info
+        try:
+            self.device_info = sd.query_devices(kind='input')
+            self.device_id = sd.default.device[0]
+        except Exception as e:
+            st.error(f"Audio device initialization error: {str(e)}")
+    
     def start_recording(self):
         try:
             self.recording = True
@@ -233,6 +241,7 @@ class OptimizedAudioRecorder:
                     self.audio_data.append(indata.copy())
             
             self.stream = sd.InputStream(
+                device=self.device_id,  # Use default input device
                 channels=self.channels,
                 samplerate=self.sample_rate,
                 dtype=self.dtype,
@@ -390,13 +399,13 @@ with col2:
                     user_text = transcribe_audio(audio_file)
                     if user_text:
                         process_response(user_text, is_voice=True)
-            st.rerun()  # Changed from experimental_rerun
+            st.experimental_rerun()
 
 # Handle text input
 if text_input and text_input != st.session_state.processed_text:
     st.session_state.processed_text = text_input
     process_response(text_input)
-    st.rerun()  # Changed from experimental_rerun
+    st.experimental_rerun()
 
 # Clear chat button
 if st.button("🗑️ Clear Chat", key="clear", help="Clear all messages"):
@@ -404,4 +413,4 @@ if st.button("🗑️ Clear Chat", key="clear", help="Clear all messages"):
         st.session_state.audio_player.stop()
     st.session_state.history = []
     st.session_state.processed_text = None
-    st.rerun()  # Changed from experimental_rerun
+    st.experimental_rerun()
