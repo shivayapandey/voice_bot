@@ -1,6 +1,7 @@
 import streamlit as st
-from st_audiorec import st_audiorec  # Changed import
+from st_audiorec import st_audiorec
 import torch
+from typing import List, Dict  # Add typing imports
 import os
 import tempfile
 import threading
@@ -117,17 +118,18 @@ initialize_audio()
 def initialize_clients():
     try:
         os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        torch.backends.cudnn.enabled = False  # Add this line to prevent CUDA issues
         
         # Initialize Groq client
         groq_client = groq.Groq(
             api_key="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"
         )
         
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = 'cpu'  # Force CPU for now to avoid CUDA issues
         whisper_model = WhisperModel(
             model_size_or_path="base.en",
             device=device,
-            compute_type="float16" if device == 'cuda' else "float32"
+            compute_type="float32"  # Force float32 for CPU
         )
         
         return groq_client, whisper_model
