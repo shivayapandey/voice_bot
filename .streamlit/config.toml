@@ -2,9 +2,13 @@
 enableCORS = false
 enableXsrfProtection = false
 maxUploadSize = 5
+enableWebsocketCompression = false
 
 [browser]
 gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
+enableSecureConnection = false
 
 [runner]
 magicEnabled = false
