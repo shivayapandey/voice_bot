@@ -229,24 +229,34 @@ class OptimizedAudioRecorder:
     
     def initialize_microphone(self):
         try:
+            # Add explicit HTML5 audio element to force permission prompt
             st.markdown("""
-                <script>
-                    navigator.mediaDevices.getUserMedia({ audio: true })
-                        .then(function(stream) {
-                            console.log('Microphone permission granted');
-                        })
-                        .catch(function(err) {
-                            console.log('Microphone permission denied');
-                        });
-                </script>
+                <div>
+                    <audio id="audio" style="display:none"></audio>
+                    <script>
+                        async function requestMicrophonePermission() {
+                            try {
+                                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                                document.getElementById('audio').srcObject = stream;
+                            } catch(err) {
+                                console.error('Microphone permission denied:', err);
+                            }
+                        }
+                        requestMicrophonePermission();
+                    </script>
+                </div>
             """, unsafe_allow_html=True)
             
-            # Force browser to show permission prompt
-            with st.spinner("📢 Please allow microphone access in your browser..."):
-                test_stream = sd.InputStream(samplerate=16000)
-                test_stream.start()
-                time.sleep(0.5)  # Wait for permission prompt
-                test_stream.stop()
+            # Give browser time to show permission prompt
+            with st.spinner("🎤 Waiting for microphone permission..."):
+                time.sleep(2)
+            
+            # Test microphone access
+            test_stream = sd.InputStream(samplerate=16000, channels=1)
+            test_stream.start()
+            dummy_data = test_stream.read(1000)
+            test_stream.stop()
+            test_stream.close()
             
             # Get available devices
             devices = sd.query_devices()
@@ -259,8 +269,16 @@ class OptimizedAudioRecorder:
                 return True
             return False
         except Exception as e:
-            st.error(f"🎤 Error initializing microphone: {str(e)}")
-            st.error("Please check if your browser and system allow microphone access")
+            st.error("❌ Microphone access denied or not available")
+            st.error(f"Error details: {str(e)}")
+            st.markdown("""
+                ### 🔧 Troubleshooting Steps:
+                1. Look for the microphone icon in your browser's address bar
+                2. Click it and select "Allow"
+                3. If you don't see the icon, click the lock/info icon
+                4. Find "Microphone" in site settings and set to "Allow"
+                5. Refresh the page and try again
+            """)
             return False
     
     def start_recording(self):
