@@ -1,6 +1,5 @@
 import streamlit as st
-import sounddevice as sd
-import wave
+from streamlit_audiorec import st_audiorec
 import torch
 import os
 import tempfile
@@ -8,11 +7,9 @@ import threading
 import time
 import asyncio
 import edge_tts
-import numpy as np
-from typing import List, Optional
+import pygame
 from faster_whisper import WhisperModel
 import groq
-import pygame
 import soundfile as sf
 
 # Configure page
@@ -110,18 +107,9 @@ if 'mic_initialized' not in st.session_state:
 
 def initialize_audio():
     try:
-        # Try different audio configurations
-        try:
-            pygame.mixer.init(frequency=24000, size=-16, channels=1, buffer=512)
-        except pygame.error:
-            try:
-                pygame.mixer.init()  # Try default initialization
-            except pygame.error:
-                # If pygame fails, try without audio initialization
-                st.warning("⚠️ Audio output might not work properly on this system.")
-                pass
+        pygame.mixer.init()
     except Exception as e:
-        st.error(f"Audio initialization error: {str(e)}")
+        st.warning("⚠️ Audio output might not work properly on this system.")
 
 # Initialize audio
 initialize_audio()
@@ -297,59 +285,6 @@ def play_stored_response(response_text: str):
     )
     player_thread.start()
 
-class SimpleAudioRecorder:
-    def __init__(self):
-        self.sample_rate = 16000
-        self.channels = 1
-        
-    def record(self, duration=5):
-        try:
-            # Create progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Pre-allocate buffer
-            num_samples = int(self.sample_rate * duration)
-            audio_data = np.zeros((num_samples, self.channels), dtype=np.float32)
-            
-            # Callback to show progress
-            def callback(indata, frames, time, status):
-                if status:
-                    st.error(f"Recording error: {status}")
-                current_frame = int(len(indata) * (time.currentTime / duration))
-                if current_frame < num_samples:
-                    audio_data[current_frame:current_frame+len(indata)] = indata
-                progress = min(time.currentTime / duration, 1.0)
-                progress_bar.progress(progress)
-                status_text.text(f"Recording... {int(progress * 100)}%")
-
-            # Start recording
-            with sd.InputStream(
-                samplerate=self.sample_rate,
-                channels=self.channels,
-                callback=callback,
-                dtype=np.float32
-            ):
-                sd.sleep(int(duration * 1000))
-            
-            # Save to temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
-                sf.write(f.name, audio_data, self.sample_rate)
-                return f.name
-                
-        except Exception as e:
-            st.error(f"Recording error: {str(e)}")
-            return None
-        finally:
-            progress_bar.empty()
-            status_text.empty()
-
-# Initialize components
-if 'audio_recorder' not in st.session_state:
-    st.session_state.audio_recorder = SimpleAudioRecorder()
-if 'audio_player' not in st.session_state:
-    st.session_state.audio_player = OptimizedAudioPlayer()
-
 # Initialize components
 if 'audio_player' not in st.session_state:
     st.session_state.audio_player = OptimizedAudioPlayer()
@@ -404,7 +339,7 @@ with chat_container:
                     play_stored_response(message["content"])
 
 # Input area with audio input
-col1, col2, col3 = st.columns([5, 1, 1])
+col1, col2 = st.columns([5, 1])
 
 with col1:
     text_input = st.text_input(
@@ -415,23 +350,22 @@ with col1:
     )
 
 with col2:
-    duration = st.slider("Duration", 1, 10, 5, 1, label_visibility="collapsed")
-
-with col3:
-    if st.button("🎤", help="Click to record"):
+    wav_audio_data = st_audiorec()
+    if wav_audio_data is not None:
+        # Save audio data to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+            f.write(wav_audio_data)
+            audio_file = f.name
+            
         try:
-            with st.spinner("Getting ready to record..."):
-                audio_file = st.session_state.audio_recorder.record(duration)
-                if audio_file:
-                    with st.spinner("Processing audio..."):
-                        user_text = transcribe_audio(audio_file)
-                        if user_text:
-                            process_response(user_text, is_voice=True)
-                        os.unlink(audio_file)
-                    st.experimental_rerun()
+            with st.spinner("Processing audio..."):
+                user_text = transcribe_audio(audio_file)
+                if user_text:
+                    process_response(user_text, is_voice=True)
+                os.unlink(audio_file)
+            st.experimental_rerun()
         except Exception as e:
-            st.error(f"Error: {str(e)}")
-            st.info("Please check if microphone access is enabled in your browser")
+            st.error(f"Error processing audio: {str(e)}")
 
 # Handle text input
 if text_input and text_input != st.session_state.processed_text:
