@@ -13,6 +13,7 @@ from typing import List, Optional
 from faster_whisper import WhisperModel
 import groq
 import pygame
+import soundfile as sf
 
 # Configure page
 st.set_page_config(
@@ -300,30 +301,48 @@ class SimpleAudioRecorder:
     def __init__(self):
         self.sample_rate = 16000
         self.channels = 1
-        self.recording = False
         
     def record(self, duration=5):
         try:
-            st.spinner("🎤 Recording...")
-            audio_data = sd.rec(
-                int(self.sample_rate * duration),
+            # Create progress bar
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Pre-allocate buffer
+            num_samples = int(self.sample_rate * duration)
+            audio_data = np.zeros((num_samples, self.channels), dtype=np.float32)
+            
+            # Callback to show progress
+            def callback(indata, frames, time, status):
+                if status:
+                    st.error(f"Recording error: {status}")
+                current_frame = int(len(indata) * (time.currentTime / duration))
+                if current_frame < num_samples:
+                    audio_data[current_frame:current_frame+len(indata)] = indata
+                progress = min(time.currentTime / duration, 1.0)
+                progress_bar.progress(progress)
+                status_text.text(f"Recording... {int(progress * 100)}%")
+
+            # Start recording
+            with sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
-                dtype=np.int16
-            )
-            sd.wait()
+                callback=callback,
+                dtype=np.float32
+            ):
+                sd.sleep(int(duration * 1000))
             
-            # Save to temporary WAV file
+            # Save to temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
-                with wave.open(f.name, 'wb') as wf:
-                    wf.setnchannels(self.channels)
-                    wf.setsampwidth(2)
-                    wf.setframerate(self.sample_rate)
-                    wf.writeframes(audio_data.tobytes())
+                sf.write(f.name, audio_data, self.sample_rate)
                 return f.name
+                
         except Exception as e:
             st.error(f"Recording error: {str(e)}")
             return None
+        finally:
+            progress_bar.empty()
+            status_text.empty()
 
 # Initialize components
 if 'audio_recorder' not in st.session_state:
@@ -385,7 +404,7 @@ with chat_container:
                     play_stored_response(message["content"])
 
 # Input area with audio input
-col1, col2 = st.columns([6, 1])
+col1, col2, col3 = st.columns([5, 1, 1])
 
 with col1:
     text_input = st.text_input(
@@ -396,15 +415,23 @@ with col1:
     )
 
 with col2:
-    if st.button("🎤", help="Record audio"):
-        with st.spinner("Recording..."):
-            audio_file = st.session_state.audio_recorder.record()
-            if audio_file:
-                user_text = transcribe_audio(audio_file)
-                if user_text:
-                    process_response(user_text, is_voice=True)
-                os.unlink(audio_file)  # Clean up temp file
-                st.experimental_rerun()
+    duration = st.slider("Duration", 1, 10, 5, 1, label_visibility="collapsed")
+
+with col3:
+    if st.button("🎤", help="Click to record"):
+        try:
+            with st.spinner("Getting ready to record..."):
+                audio_file = st.session_state.audio_recorder.record(duration)
+                if audio_file:
+                    with st.spinner("Processing audio..."):
+                        user_text = transcribe_audio(audio_file)
+                        if user_text:
+                            process_response(user_text, is_voice=True)
+                        os.unlink(audio_file)
+                    st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+            st.info("Please check if microphone access is enabled in your browser")
 
 # Handle text input
 if text_input and text_input != st.session_state.processed_text:
