@@ -223,25 +223,38 @@ class OptimizedAudioRecorder:
         self.recording = False
         self.audio_data = []
         self.stream = None
+        self.device_id = None
         
-        # Get default input device info
+        # Initialize audio device
         try:
-            self.device_info = sd.query_devices(kind='input')
-            self.device_id = sd.default.device[0]
+            devices = sd.query_devices()
+            input_devices = [i for i, d in enumerate(devices) if d['max_input_channels'] > 0]
+            if input_devices:
+                self.device_id = input_devices[0]
+                device_info = sd.query_devices(self.device_id)
+                st.info(f"Using audio input device: {device_info['name']}")
+            else:
+                st.error("No input devices found")
         except Exception as e:
             st.error(f"Audio device initialization error: {str(e)}")
     
     def start_recording(self):
+        if self.device_id is None:
+            st.error("No audio input device available")
+            return
+            
         try:
             self.recording = True
             self.audio_data = []
             
             def callback(indata, frames, time, status):
+                if status:
+                    st.warning(f"Audio callback status: {status}")
                 if self.recording:
                     self.audio_data.append(indata.copy())
             
             self.stream = sd.InputStream(
-                device=self.device_id,  # Use default input device
+                device=self.device_id,
                 channels=self.channels,
                 samplerate=self.sample_rate,
                 dtype=self.dtype,
@@ -278,14 +291,13 @@ class OptimizedAudioRecorder:
         except Exception as e:
             st.error(f"Error stopping recording: {str(e)}")
             return None
+
+    # Remove the old callback and __del__ methods as they're not needed
     def callback(self, in_data, frame_count, time_info, status):
-        if self.is_recording:
-            self.frames.append(in_data)
-        return (in_data, pyaudio.paContinue)
+        pass  # Remove this method
 
     def __del__(self):
-        if self.audio:
-            self.audio.terminate()
+        pass  # Remove this method
 
 @st.cache_data(ttl=300)
 def transcribe_audio(audio_file: str) -> str:
