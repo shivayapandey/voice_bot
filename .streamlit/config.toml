@@ -1,8 +1,5 @@
 [server]
 maxUploadSize = 5
-enableXsrfProtection = true
-enableCORS = false
-enableWebsocketCompression = false
 
 [browser]
 gatherUsageStats = false
@@ -11,9 +8,6 @@ serverPort = 8501
 enableSecureConnection = false
 
 [runner]
-magicEnabled = false
-fastRerenderEnabled = false
-# Prevent memory issues
 memory_limit = "1000M"
 
 [theme]
