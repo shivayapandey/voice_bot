@@ -11,4 +11,5 @@ groq==0.13.1
 pygame==2.1.2
 sounddevice==0.4.6
 pyarrow==10.0.1
+soundfile==0.12.1
 
