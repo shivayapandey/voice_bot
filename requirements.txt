@@ -1,14 +1,15 @@
 setuptools>=65.5.1
 wheel>=0.38.0
-streamlit==1.28.0  # Specific version for compatibility
+streamlit
+streamlit_audiorec
 protobuf==3.20.0
 numpy<2.0.0,>=1.21.6
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.0.1
-edge-tts==6.1.9
-faster-whisper==0.9.0
-groq==0.13.1
-pygame==2.1.2
+torch
+edge-tts
+faster-whisper
+groq
+pygame
 sounddevice==0.4.6
 pyarrow==10.0.1
 soundfile==0.12.1
