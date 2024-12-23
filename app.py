@@ -1,4 +1,6 @@
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import av
 import torch
 from typing import List
 import os
@@ -231,22 +233,26 @@ with col1:
     text_input = st.text_input("", placeholder="Type your message here...", key="text_input", label_visibility="collapsed")
 
 with col2:
-    uploaded_file = st.file_uploader("", type=['wav', 'mp3'], label_visibility="collapsed")
-    if uploaded_file:
+    webrtc_ctx, audio_processor = record_audio()
+    
+    if webrtc_ctx.audio_receiver and len(audio_processor.audio_buffer) > 0:
         try:
             with st.spinner("Processing audio..."):
-                audio_bytes = uploaded_file.read()
-                user_text = transcribe_audio(audio_bytes)
-                if user_text:
-                    process_response(user_text)
+                # Convert audio buffer to bytes
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+                    import numpy as np
+                    audio_data = np.array(audio_processor.audio_buffer)
+                    import soundfile as sf
+                    sf.write(f.name, audio_data, 16000)
+                    
+                    user_text = transcribe_audio(f.name)
+                    if user_text:
+                        process_response(user_text)
+                    os.unlink(f.name)
+                audio_processor.audio_buffer = []  # Clear buffer after processing
             st.rerun()
         except Exception as e:
             st.error(f"Error processing audio: {str(e)}")
-
-if text_input and text_input != st.session_state.processed_text:
-    st.session_state.processed_text = text_input
-    process_response(text_input)
-    st.rerun()
 
 # Clear chat button
 if st.button("🗑️ Clear Chat", key="clear"):
