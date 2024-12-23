@@ -1,5 +1,4 @@
 import streamlit as st
-from st_audiorec import st_audiorec
 import torch
 from typing import List
 import os
@@ -8,7 +7,8 @@ import edge_tts
 import asyncio
 from faster_whisper import WhisperModel
 import groq
-import soundfile as sf
+import base64
+from io import BytesIO
 
 try:
     if st._is_running_with_streamlit:
@@ -103,24 +103,19 @@ if 'processed_text' not in st.session_state:
 def initialize_clients():
     try:
         os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-        torch.set_num_threads(1)  # Prevent threading issues
+        torch.set_num_threads(1)
         
         groq_client = groq.Groq(
             api_key="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"
         )
         
-        device = 'cpu'
-        try:
-            whisper_model = WhisperModel(
-                model_size_or_path="base.en",
-                device=device,
-                compute_type="float32",
-                num_workers=1  # Prevent threading issues
-            )
-        except Exception as e:
-            st.error(f"Error loading Whisper model: {str(e)}")
-            return None, None
-            
+        whisper_model = WhisperModel(
+            model_size_or_path="base.en",
+            device="cpu",
+            compute_type="float32",
+            num_workers=1
+        )
+        
         return groq_client, whisper_model
     except Exception as e:
         st.error(f"Error initializing clients: {str(e)}")
@@ -137,44 +132,35 @@ def play_audio(text: str):
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
             temp_path = temp_file.name
             
-        # Generate speech with timeout
-        try:
-            asyncio.run(asyncio.wait_for(generate_speech(text, temp_path), timeout=10.0))
-        except asyncio.TimeoutError:
-            st.error("Speech generation timed out")
-            st.write(text)
-            return
+        asyncio.run(asyncio.wait_for(generate_speech(text, temp_path), timeout=10.0))
+        
+        with open(temp_path, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+            st.audio(audio_bytes, format='audio/mp3')
             
-        # Play using streamlit's native audio player
-        try:
-            with open(temp_path, 'rb') as audio_file:
-                audio_bytes = audio_file.read()
-                st.audio(audio_bytes, format='audio/mp3')
-        except Exception as e:
-            st.error(f"Audio playback error: {str(e)}")
-            st.write(text)
-        finally:
-            try:
-                os.unlink(temp_path)
-            except:
-                pass
+        os.unlink(temp_path)
     except Exception as e:
         st.error(f"Audio error: {str(e)}")
         st.write(text)
 
 @st.cache_data(ttl=300)
-def transcribe_audio(audio_file: str) -> str:
-    if not audio_file or not whisper_model:
+def transcribe_audio(audio_bytes: bytes) -> str:
+    if not audio_bytes or not whisper_model:
         return ""
         
     try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+            f.write(audio_bytes)
+            temp_path = f.name
+            
         segments, _ = whisper_model.transcribe(
-            audio_file,
+            temp_path,
             beam_size=1,
-            word_timestamps=False,
             language='en',
             vad_filter=True
         )
+        
+        os.unlink(temp_path)
         return " ".join(segment.text for segment in segments)
     except Exception as e:
         st.error(f"Transcription error: {str(e)}")
@@ -245,18 +231,14 @@ with col1:
     text_input = st.text_input("", placeholder="Type your message here...", key="text_input", label_visibility="collapsed")
 
 with col2:
-    wav_audio_data = st_audiorec()
-    if wav_audio_data is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
-            f.write(wav_audio_data)
-            audio_file = f.name
-            
+    uploaded_file = st.file_uploader("", type=['wav', 'mp3'], label_visibility="collapsed")
+    if uploaded_file:
         try:
             with st.spinner("Processing audio..."):
-                user_text = transcribe_audio(audio_file)
+                audio_bytes = uploaded_file.read()
+                user_text = transcribe_audio(audio_bytes)
                 if user_text:
                     process_response(user_text)
-                os.unlink(audio_file)
             st.rerun()
         except Exception as e:
             st.error(f"Error processing audio: {str(e)}")
