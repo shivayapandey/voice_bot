@@ -104,6 +104,8 @@ if 'processed_text' not in st.session_state:
     st.session_state.processed_text = None
 if 'response_queue' not in st.session_state:
     st.session_state.response_queue = []
+if 'mic_initialized' not in st.session_state:
+    st.session_state.mic_initialized = False
 
 def initialize_audio():
     try:
@@ -224,32 +226,31 @@ class OptimizedAudioRecorder:
         self.audio_data = []
         self.stream = None
         self.device_id = None
-        
-        # Add permission check and device initialization
+    
+    def initialize_microphone(self):
         try:
-            # Request microphone access using streamlit
-            st.info("⚡ Please allow microphone access when prompted")
+            # Create a test stream to trigger browser permission
+            test_stream = sd.InputStream(
+                channels=1,
+                samplerate=self.sample_rate,
+                dtype=self.dtype
+            )
+            test_stream.start()
+            test_stream.stop()
             
-            # Test audio input to trigger browser permission
-            with st.spinner("Initializing microphone..."):
-                dummy_stream = sd.InputStream(channels=1, callback=lambda *args: None)
-                dummy_stream.start()
-                dummy_stream.stop()
-            
-            # Get available input devices
+            # Get available devices
             devices = sd.query_devices()
             input_devices = [i for i, d in enumerate(devices) if d['max_input_channels'] > 0]
             
             if input_devices:
                 self.device_id = input_devices[0]
                 device_info = sd.query_devices(self.device_id)
-                st.success(f"✅ Microphone initialized: {device_info['name']}")
-            else:
-                st.error("❌ No microphone found. Please check your system settings.")
-                
+                st.session_state.mic_initialized = True
+                return True
+            return False
         except Exception as e:
-            st.error(f"🎤 Microphone initialization failed: {str(e)}")
-            st.info("💡 Tip: Make sure to allow microphone access in your browser")
+            st.error(f"🎤 Error initializing microphone: {str(e)}")
+            return False
     
     def start_recording(self):
         if self.device_id is None:
@@ -388,6 +389,17 @@ if 'audio_player' not in st.session_state:
 # Main UI
 st.title("🤖 AI Voice Assistant")
 
+# Add this before the chat container
+if not st.session_state.mic_initialized:
+    st.warning("🎤 Microphone access required")
+    if st.button("Initialize Microphone"):
+        if st.session_state.audio_recorder.initialize_microphone():
+            st.success("✅ Microphone initialized successfully!")
+            st.experimental_rerun()
+        else:
+            st.error("❌ Could not initialize microphone. Please check browser permissions.")
+            st.info("💡 Tip: Click the lock/info icon next to the URL and enable microphone access")
+
 # Chat container
 chat_container = st.container()
 with chat_container:
@@ -415,7 +427,7 @@ with col2:
     record_button_class = "record-button recording" if st.session_state.recording else "record-button"
     record_icon = "⏺️" if not st.session_state.recording else "⏹️"
     
-    if st.button(record_icon, key="record_button"):
+    if st.button(record_icon, key="record_button", disabled=not st.session_state.mic_initialized):
         if not st.session_state.recording:
             st.session_state.recording = True
             st.session_state.audio_recorder.start_recording()
