@@ -1,4 +1,6 @@
 streamlit==1.31.0
+streamlit-webrtc==0.47.1
+av==10.0.0
 edge-tts==6.1.9
 faster-whisper==0.10.0
 groq==0.4.2
