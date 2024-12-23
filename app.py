@@ -217,133 +217,7 @@ class OptimizedAudioPlayer:
         finally:
             st.session_state.audio_playing = False
 
-class OptimizedAudioRecorder:
-    def __init__(self):
-        self.sample_rate = 16000
-        self.channels = 1
-        self.dtype = np.int16
-        self.recording = False
-        self.audio_data = []
-        self.stream = None
-        self.device_id = None
-    
-    def initialize_microphone(self):
-        try:
-            # Add explicit HTML5 audio element to force permission prompt
-            st.markdown("""
-                <div>
-                    <audio id="audio" style="display:none"></audio>
-                    <script>
-                        async function requestMicrophonePermission() {
-                            try {
-                                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                                document.getElementById('audio').srcObject = stream;
-                            } catch(err) {
-                                console.error('Microphone permission denied:', err);
-                            }
-                        }
-                        requestMicrophonePermission();
-                    </script>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Give browser time to show permission prompt
-            with st.spinner("🎤 Waiting for microphone permission..."):
-                time.sleep(2)
-            
-            # Test microphone access
-            test_stream = sd.InputStream(samplerate=16000, channels=1)
-            test_stream.start()
-            dummy_data = test_stream.read(1000)
-            test_stream.stop()
-            test_stream.close()
-            
-            # Get available devices
-            devices = sd.query_devices()
-            input_devices = [i for i, d in enumerate(devices) if d['max_input_channels'] > 0]
-            
-            if input_devices:
-                self.device_id = input_devices[0]
-                device_info = sd.query_devices(self.device_id)
-                st.session_state.mic_initialized = True
-                return True
-            return False
-        except Exception as e:
-            st.error("❌ Microphone access denied or not available")
-            st.error(f"Error details: {str(e)}")
-            st.markdown("""
-                ### 🔧 Troubleshooting Steps:
-                1. Look for the microphone icon in your browser's address bar
-                2. Click it and select "Allow"
-                3. If you don't see the icon, click the lock/info icon
-                4. Find "Microphone" in site settings and set to "Allow"
-                5. Refresh the page and try again
-            """)
-            return False
-    
-    def start_recording(self):
-        if self.device_id is None:
-            st.error("❌ No microphone available. Please check permissions and try again.")
-            return
-        
-        try:
-            self.recording = True
-            self.audio_data = []
-            
-            def callback(indata, frames, time, status):
-                if status:
-                    print(f'Audio callback status: {status}')
-                if self.recording:
-                    self.audio_data.append(indata.copy())
-            
-            self.stream = sd.InputStream(
-                device=self.device_id,
-                channels=self.channels,
-                samplerate=self.sample_rate,
-                dtype=self.dtype,
-                callback=callback,
-                blocksize=1024,
-                latency='low'
-            )
-            self.stream.start()
-            st.info("🎤 Recording started...")
-        except Exception as e:
-            st.error(f"❌ Recording error: {str(e)}")
-            self.recording = False
-
-    def stop_recording(self):
-        if not self.recording:
-            return None
-            
-        try:
-            self.recording = False
-            self.stream.stop()
-            self.stream.close()
-            
-            if not self.audio_data:
-                return None
-                
-            # Concatenate all audio chunks
-            audio_data = np.concatenate(self.audio_data, axis=0)
-            
-            # Save to WAV file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
-                with wave.open(f.name, 'wb') as wf:
-                    wf.setnchannels(self.channels)
-                    wf.setsampwidth(2)  # 16-bit audio
-                    wf.setframerate(self.sample_rate)
-                    wf.writeframes(audio_data.tobytes())
-                return f.name
-        except Exception as e:
-            st.error(f"Error stopping recording: {str(e)}")
-            return None
-
-    # Remove the old callback and __del__ methods as they're not needed
-    def callback(self, in_data, frame_count, time_info, status):
-        pass  # Remove this method
-
-    def __del__(self):
-        pass  # Remove this method
+# Remove OptimizedAudioRecorder class as we'll use st.audio_input instead
 
 @st.cache_data(ttl=300)
 def transcribe_audio(audio_file: str) -> str:
@@ -423,8 +297,6 @@ def play_stored_response(response_text: str):
     player_thread.start()
 
 # Initialize components
-if 'audio_recorder' not in st.session_state:
-    st.session_state.audio_recorder = OptimizedAudioRecorder()
 if 'audio_player' not in st.session_state:
     st.session_state.audio_player = OptimizedAudioPlayer()
 
@@ -477,7 +349,7 @@ with chat_container:
                 if st.button("🔊", key=f"play_{i}", help="Play response"):
                     play_stored_response(message["content"])
 
-# Input area
+# Input area with audio input
 col1, col2 = st.columns([6, 1])
 
 with col1:
@@ -489,22 +361,19 @@ with col1:
     )
 
 with col2:
-    record_button_class = "record-button recording" if st.session_state.recording else "record-button"
-    record_icon = "⏺️" if not st.session_state.recording else "⏹️"
-    
-    if st.button(record_icon, key="record_button", disabled=not st.session_state.mic_initialized):
-        if not st.session_state.recording:
-            st.session_state.recording = True
-            st.session_state.audio_recorder.start_recording()
-        else:
-            st.session_state.recording = False
-            with st.spinner("Processing..."):
-                audio_file = st.session_state.audio_recorder.stop_recording()
-                if audio_file:
-                    user_text = transcribe_audio(audio_file)
-                    if user_text:
-                        process_response(user_text, is_voice=True)
-            st.experimental_rerun()
+    audio_bytes = st.audio_input("🎤", key="audio_input")
+    if audio_bytes:
+        # Save audio bytes to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+            f.write(audio_bytes)
+            audio_file = f.name
+        
+        with st.spinner("Processing..."):
+            user_text = transcribe_audio(audio_file)
+            if user_text:
+                process_response(user_text, is_voice=True)
+        os.unlink(audio_file)  # Clean up temp file
+        st.experimental_rerun()
 
 # Handle text input
 if text_input and text_input != st.session_state.processed_text:
