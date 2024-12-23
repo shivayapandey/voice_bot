@@ -1,7 +1,7 @@
 [server]
-enableCORS = false
-enableXsrfProtection = false
 maxUploadSize = 5
+enableXsrfProtection = true
+enableCORS = false
 enableWebsocketCompression = false
 
 [browser]
@@ -13,9 +13,15 @@ enableSecureConnection = false
 [runner]
 magicEnabled = false
 fastRerenderEnabled = false
+# Prevent memory issues
+memory_limit = "1000M"
 
 [theme]
 base = "dark"
+primaryColor = "#4C61F0"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#1E1E1E"
+textColor = "#FFFFFF"
 
 [client]
 showErrorDetails = false
