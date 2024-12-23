@@ -409,11 +409,30 @@ def process_response(text_input: str, is_voice: bool = False):
     except Exception as e:
         st.error(f"Error processing response: {str(e)}")
 
+def play_stored_response(response_text: str):
+    """Play a stored assistant response"""
+    if st.session_state.audio_playing:
+        st.session_state.audio_player.stop()
+    
+    st.session_state.audio_playing = True
+    player_thread = threading.Thread(
+        target=st.session_state.audio_player.play,
+        args=(response_text,),
+        daemon=True
+    )
+    player_thread.start()
+
 # Initialize components
 if 'audio_recorder' not in st.session_state:
     st.session_state.audio_recorder = OptimizedAudioRecorder()
 if 'audio_player' not in st.session_state:
     st.session_state.audio_player = OptimizedAudioPlayer()
+
+if not st.session_state.mic_initialized:
+    try:
+        st.session_state.mic_initialized = st.session_state.audio_recorder.initialize_microphone()
+    except Exception as e:
+        st.error(f"Error initializing microphone: {str(e)}")
 
 # Main UI
 st.title("🤖 AI Voice Assistant")
@@ -443,14 +462,20 @@ if not st.session_state.mic_initialized:
 # Chat container
 chat_container = st.container()
 with chat_container:
-    for message in st.session_state.history:
-        role_class = "user-message" if message["role"] == "user" else "assistant-message"
-        st.markdown(
-            f"""<div class="{role_class}">
-                <strong>{'You' if message["role"] == "user" else '🤖 Assistant'}</strong>: {message["content"]}
-                </div>""",
-            unsafe_allow_html=True
-        )
+    for i, message in enumerate(st.session_state.history):
+        col1, col2 = st.columns([6, 1])
+        with col1:
+            role_class = "user-message" if message["role"] == "user" else "assistant-message"
+            st.markdown(
+                f"""<div class="{role_class}">
+                    <strong>{'You' if message["role"] == "user" else '🤖 Assistant'}</strong>: {message["content"]}
+                    </div>""",
+                unsafe_allow_html=True
+            )
+        with col2:
+            if message["role"] == "assistant":
+                if st.button("🔊", key=f"play_{i}", help="Play response"):
+                    play_stored_response(message["content"])
 
 # Input area
 col1, col2 = st.columns([6, 1])
