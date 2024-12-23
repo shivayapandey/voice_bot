@@ -1,7 +1,10 @@
+setuptools>=65.5.1
+wheel>=0.38.0
 streamlit==1.24.0
 protobuf==3.20.0
-numpy==1.21.6
-torch==1.12.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+numpy<2.0.0,>=1.21.6
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.0.1
 edge-tts==6.1.9
 faster-whisper==0.9.0
 groq==0.13.1
