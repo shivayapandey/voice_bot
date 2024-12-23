@@ -225,31 +225,44 @@ class OptimizedAudioRecorder:
         self.stream = None
         self.device_id = None
         
-        # Initialize audio device
+        # Add permission check and device initialization
         try:
+            # Request microphone access using streamlit
+            st.info("⚡ Please allow microphone access when prompted")
+            
+            # Test audio input to trigger browser permission
+            with st.spinner("Initializing microphone..."):
+                dummy_stream = sd.InputStream(channels=1, callback=lambda *args: None)
+                dummy_stream.start()
+                dummy_stream.stop()
+            
+            # Get available input devices
             devices = sd.query_devices()
             input_devices = [i for i, d in enumerate(devices) if d['max_input_channels'] > 0]
+            
             if input_devices:
                 self.device_id = input_devices[0]
                 device_info = sd.query_devices(self.device_id)
-                st.info(f"Using audio input device: {device_info['name']}")
+                st.success(f"✅ Microphone initialized: {device_info['name']}")
             else:
-                st.error("No input devices found")
+                st.error("❌ No microphone found. Please check your system settings.")
+                
         except Exception as e:
-            st.error(f"Audio device initialization error: {str(e)}")
+            st.error(f"🎤 Microphone initialization failed: {str(e)}")
+            st.info("💡 Tip: Make sure to allow microphone access in your browser")
     
     def start_recording(self):
         if self.device_id is None:
-            st.error("No audio input device available")
+            st.error("❌ No microphone available. Please check permissions and try again.")
             return
-            
+        
         try:
             self.recording = True
             self.audio_data = []
             
             def callback(indata, frames, time, status):
                 if status:
-                    st.warning(f"Audio callback status: {status}")
+                    print(f'Audio callback status: {status}')
                 if self.recording:
                     self.audio_data.append(indata.copy())
             
@@ -258,11 +271,14 @@ class OptimizedAudioRecorder:
                 channels=self.channels,
                 samplerate=self.sample_rate,
                 dtype=self.dtype,
-                callback=callback
+                callback=callback,
+                blocksize=1024,
+                latency='low'
             )
             self.stream.start()
+            st.info("🎤 Recording started...")
         except Exception as e:
-            st.error(f"Error starting recording: {str(e)}")
+            st.error(f"❌ Recording error: {str(e)}")
             self.recording = False
 
     def stop_recording(self):
