@@ -1,16 +1,11 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
-import av
 from st_audiorec import st_audiorec
 import torch
-from typing import List, Dict  # Add typing imports
+from typing import List
 import os
 import tempfile
-import threading
-import time
-import asyncio
 import edge_tts
-import pygame
+import asyncio
 from faster_whisper import WhisperModel
 import groq
 import soundfile as sf
@@ -97,53 +92,22 @@ st.markdown("""
 # Initialize session state
 if 'history' not in st.session_state:
     st.session_state.history = []
-if 'audio_playing' not in st.session_state:
-    st.session_state.audio_playing = False
 if 'processed_text' not in st.session_state:
     st.session_state.processed_text = None
-if 'response_queue' not in st.session_state:
-    st.session_state.response_queue = []
-if 'mic_initialized' not in st.session_state:
-    st.session_state.mic_initialized = False
 
-def initialize_audio():
-    try:
-        # Try different audio configurations
-        try:
-            pygame.mixer.init(frequency=24000, size=-16, channels=1)
-        except pygame.error:
-            try:
-                pygame.mixer.init(frequency=44100)
-            except pygame.error:
-                try:
-                    # Try SDL audio driver
-                    os.environ['SDL_AUDIODRIVER'] = 'dsp'
-                    pygame.mixer.init()
-                except:
-                    st.warning("⚠️ Audio playback disabled - no audio device available")
-                    return False
-    except Exception as e:
-        st.warning(f"⚠️ Audio initialization error: {str(e)}")
-        return False
-    return True
-
-# Initialize clients with provided keys
 @st.cache_resource
 def initialize_clients():
     try:
-        os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-        torch.backends.cudnn.enabled = False  # Add this line to prevent CUDA issues
-        
         # Initialize Groq client
         groq_client = groq.Groq(
             api_key="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"
         )
         
-        device = 'cpu'  # Force CPU for now to avoid CUDA issues
+        device = 'cpu'
         whisper_model = WhisperModel(
             model_size_or_path="base.en",
             device=device,
-            compute_type="float32"  # Force float32 for CPU
+            compute_type="float32"
         )
         
         return groq_client, whisper_model
@@ -153,92 +117,27 @@ def initialize_clients():
 
 groq_client, whisper_model = initialize_clients()
 
-class OptimizedAudioPlayer:
-    def __init__(self):
-        self._stop_event = threading.Event()
-        self.VOICE = "en-US-JennyNeural"
-        self.audio_enabled = initialize_audio()
-    
-    def stop(self):
-        if self.audio_enabled:
-            self._stop_event.set()
-            try:
-                pygame.mixer.music.stop()
-            except:
-                pass
-    
-    async def _generate_speech(self, text: str, output_file: str):
-        communicate = edge_tts.Communicate(text, self.VOICE)
-        await communicate.save(output_file)
-    
-    def play(self, text: str):
-        if not text:
-            return
-            
-        if not self.audio_enabled:
-            st.write(text)  # Fallback to displaying text
-            return
-            
-        self._stop_event.clear()
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
-                temp_path = temp_file.name
-                
-            # Generate speech
-            asyncio.run(self._generate_speech(text, temp_path))
-            
-            try:
-                if not pygame.mixer.get_init():
-                    pygame.mixer.init()
-                pygame.mixer.music.load(temp_path)
-                pygame.mixer.music.play()
-                
-                while pygame.mixer.music.get_busy():
-                    if self._stop_event.is_set():
-                        pygame.mixer.music.stop()
-                        break
-                    time.sleep(0.1)
-            except Exception as e:
-                st.error(f"Playback error: {str(e)}")
-                st.write(text)
-            
-            os.unlink(temp_path)
-            
-        except Exception as e:
-            st.error(f"🔇 Audio error: {str(e)}")
-            st.write(text)
-        finally:
-            st.session_state.audio_playing = False
+async def generate_speech(text: str, output_file: str, voice="en-US-JennyNeural"):
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_file)
 
-class AudioProcessor:
-    def __init__(self):
-        self.audio_buffer = []
+def play_audio(text: str):
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+            temp_path = temp_file.name
+            
+        # Generate speech
+        asyncio.run(generate_speech(text, temp_path))
         
-    def process_audio(self, frame):
-        self.audio_buffer.extend(frame.to_ndarray().flatten())
-        return frame
-
-# Replace the audio input section with WebRTC recorder
-def record_audio():
-    processor = AudioProcessor()
-    
-    webrtc_ctx = webrtc_streamer(
-        key="audio-recorder",
-        mode=WebRtcMode.SENDONLY,
-        audio_receiver_size=1024,
-        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-        media_stream_constraints={"video": False, "audio": True},
-        async_processing=True,
-        video_processor_factory=None,
-        audio_processor_factory=lambda: processor,
-    )
-    
-    if webrtc_ctx.audio_receiver and len(processor.audio_buffer) > 0:
-        # Convert audio buffer to WAV file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
-            sf.write(f.name, processor.audio_buffer, 16000)
-            return f.name
-    return None
+        # Play using streamlit's native audio player
+        with open(temp_path, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+            st.audio(audio_bytes, format='audio/mp3')
+            
+        os.unlink(temp_path)
+    except Exception as e:
+        st.error(f"Audio error: {str(e)}")
+        st.write(text)
 
 @st.cache_data(ttl=300)
 def transcribe_audio(audio_file: str) -> str:
@@ -274,9 +173,7 @@ def get_assistant_response(messages: List[dict]) -> str:
         st.error(f"Groq API Error: {str(e)}")
         return f"Error: {str(e)}"
 
-
-
-def process_response(text_input: str, is_voice: bool = False):
+def process_response(text_input: str):
     if not text_input:
         return
         
@@ -293,33 +190,9 @@ def process_response(text_input: str, is_voice: bool = False):
             return
             
         st.session_state.history.append({"role": "assistant", "content": response})
-        
-        st.session_state.audio_playing = True
-        player_thread = threading.Thread(
-            target=st.session_state.audio_player.play,
-            args=(response,),
-            daemon=True
-        )
-        player_thread.start()
+        play_audio(response)
     except Exception as e:
         st.error(f"Error processing response: {str(e)}")
-
-def play_stored_response(response_text: str):
-    """Play a stored assistant response"""
-    if st.session_state.audio_playing:
-        st.session_state.audio_player.stop()
-    
-    st.session_state.audio_playing = True
-    player_thread = threading.Thread(
-        target=st.session_state.audio_player.play,
-        args=(response_text,),
-        daemon=True
-    )
-    player_thread.start()
-
-# Initialize components
-if 'audio_player' not in st.session_state:
-    st.session_state.audio_player = OptimizedAudioPlayer()
 
 # Main UI
 st.title("🤖 AI Voice Assistant")
@@ -340,42 +213,38 @@ with chat_container:
         with col2:
             if message["role"] == "assistant":
                 if st.button("🔊", key=f"play_{i}", help="Play response"):
-                    play_stored_response(message["content"])
+                    play_audio(message["content"])
 
-# Input area with audio input
+# Input area
 col1, col2 = st.columns([5, 1])
 
 with col1:
-    text_input = st.text_input(
-        "",
-        placeholder="Type your message here...",
-        key="text_input",
-        label_visibility="collapsed"
-    )
+    text_input = st.text_input("", placeholder="Type your message here...", key="text_input", label_visibility="collapsed")
 
 with col2:
-    audio_file = record_audio()
-    if audio_file:
+    wav_audio_data = st_audiorec()
+    if wav_audio_data is not None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+            f.write(wav_audio_data)
+            audio_file = f.name
+            
         try:
             with st.spinner("Processing audio..."):
                 user_text = transcribe_audio(audio_file)
                 if user_text:
-                    process_response(user_text, is_voice=True)
+                    process_response(user_text)
                 os.unlink(audio_file)
-            st.rerun()  # Changed from experimental_rerun
+            st.rerun()
         except Exception as e:
             st.error(f"Error processing audio: {str(e)}")
 
-# Handle text input
 if text_input and text_input != st.session_state.processed_text:
     st.session_state.processed_text = text_input
     process_response(text_input)
-    st.rerun()  # Changed from experimental_rerun
+    st.rerun()
 
 # Clear chat button
-if st.button("🗑️ Clear Chat", key="clear", help="Clear all messages"):
-    if st.session_state.audio_playing:
-        st.session_state.audio_player.stop()
+if st.button("🗑️ Clear Chat", key="clear"):
     st.session_state.history = []
     st.session_state.processed_text = None
-    st.rerun()  # Changed from experimental_rerun
+    st.rerun()
