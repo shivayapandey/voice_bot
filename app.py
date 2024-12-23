@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_audiorec import st_audiorec
+from st_audiorec import st_audiorec  # Changed import
 import torch
 import os
 import tempfile
@@ -94,8 +94,6 @@ st.markdown("""
 # Initialize session state
 if 'history' not in st.session_state:
     st.session_state.history = []
-if 'recording' not in st.session_state:
-    st.session_state.recording = False
 if 'audio_playing' not in st.session_state:
     st.session_state.audio_playing = False
 if 'processed_text' not in st.session_state:
@@ -289,36 +287,8 @@ def play_stored_response(response_text: str):
 if 'audio_player' not in st.session_state:
     st.session_state.audio_player = OptimizedAudioPlayer()
 
-if not st.session_state.mic_initialized:
-    try:
-        st.session_state.mic_initialized = st.session_state.audio_recorder.initialize_microphone()
-    except Exception as e:
-        st.error(f"Error initializing microphone: {str(e)}")
-
 # Main UI
 st.title("🤖 AI Voice Assistant")
-
-# Add this before the chat container
-if not st.session_state.mic_initialized:
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.warning("🎤 Click the button to enable microphone access")
-    with col2:
-        if st.button("🎙️ Enable Microphone", use_container_width=True):
-            if st.session_state.audio_recorder.initialize_microphone():
-                st.balloons()
-                st.success("✅ Microphone initialized successfully!")
-                time.sleep(1)
-                st.experimental_rerun()
-            else:
-                st.error("❌ Could not initialize microphone")
-                st.info("""
-                💡 Troubleshooting:
-                1. Click the lock/camera icon in your browser's address bar
-                2. Enable microphone access
-                3. Refresh the page
-                4. Try clicking the button again
-                """)
 
 # Chat container
 chat_container = st.container()
