@@ -1,7 +1,18 @@
-
 [server]
 enableCORS = false
 enableXsrfProtection = false
+maxUploadSize = 5
 
 [browser]
 gatherUsageStats = false
+
+[runner]
+magicEnabled = false
+fastRerenderEnabled = false
+
+[theme]
+base = "dark"
+
+[client]
+showErrorDetails = false
+caching = true
