@@ -10,13 +10,17 @@ from faster_whisper import WhisperModel
 import groq
 import soundfile as sf
 
-# Configure page
-st.set_page_config(
-    page_title="AI Voice Assistant",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+try:
+    if st._is_running_with_streamlit:
+        # Only run initialization when in Streamlit environment
+        st.set_page_config(
+            page_title="AI Voice Assistant",
+            page_icon="🤖",
+            layout="wide",
+            initial_sidebar_state="collapsed"
+        )
+except:
+    pass
 
 # Styling
 st.markdown("""
@@ -95,21 +99,28 @@ if 'history' not in st.session_state:
 if 'processed_text' not in st.session_state:
     st.session_state.processed_text = None
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def initialize_clients():
     try:
-        # Initialize Groq client
+        os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        torch.set_num_threads(1)  # Prevent threading issues
+        
         groq_client = groq.Groq(
             api_key="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"
         )
         
         device = 'cpu'
-        whisper_model = WhisperModel(
-            model_size_or_path="base.en",
-            device=device,
-            compute_type="float32"
-        )
-        
+        try:
+            whisper_model = WhisperModel(
+                model_size_or_path="base.en",
+                device=device,
+                compute_type="float32",
+                num_workers=1  # Prevent threading issues
+            )
+        except Exception as e:
+            st.error(f"Error loading Whisper model: {str(e)}")
+            return None, None
+            
         return groq_client, whisper_model
     except Exception as e:
         st.error(f"Error initializing clients: {str(e)}")
@@ -126,15 +137,27 @@ def play_audio(text: str):
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
             temp_path = temp_file.name
             
-        # Generate speech
-        asyncio.run(generate_speech(text, temp_path))
-        
-        # Play using streamlit's native audio player
-        with open(temp_path, 'rb') as audio_file:
-            audio_bytes = audio_file.read()
-            st.audio(audio_bytes, format='audio/mp3')
+        # Generate speech with timeout
+        try:
+            asyncio.run(asyncio.wait_for(generate_speech(text, temp_path), timeout=10.0))
+        except asyncio.TimeoutError:
+            st.error("Speech generation timed out")
+            st.write(text)
+            return
             
-        os.unlink(temp_path)
+        # Play using streamlit's native audio player
+        try:
+            with open(temp_path, 'rb') as audio_file:
+                audio_bytes = audio_file.read()
+                st.audio(audio_bytes, format='audio/mp3')
+        except Exception as e:
+            st.error(f"Audio playback error: {str(e)}")
+            st.write(text)
+        finally:
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
     except Exception as e:
         st.error(f"Audio error: {str(e)}")
         st.write(text)
