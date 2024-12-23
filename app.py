@@ -296,6 +296,41 @@ def play_stored_response(response_text: str):
     )
     player_thread.start()
 
+class SimpleAudioRecorder:
+    def __init__(self):
+        self.sample_rate = 16000
+        self.channels = 1
+        self.recording = False
+        
+    def record(self, duration=5):
+        try:
+            st.spinner("🎤 Recording...")
+            audio_data = sd.rec(
+                int(self.sample_rate * duration),
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype=np.int16
+            )
+            sd.wait()
+            
+            # Save to temporary WAV file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+                with wave.open(f.name, 'wb') as wf:
+                    wf.setnchannels(self.channels)
+                    wf.setsampwidth(2)
+                    wf.setframerate(self.sample_rate)
+                    wf.writeframes(audio_data.tobytes())
+                return f.name
+        except Exception as e:
+            st.error(f"Recording error: {str(e)}")
+            return None
+
+# Initialize components
+if 'audio_recorder' not in st.session_state:
+    st.session_state.audio_recorder = SimpleAudioRecorder()
+if 'audio_player' not in st.session_state:
+    st.session_state.audio_player = OptimizedAudioPlayer()
+
 # Initialize components
 if 'audio_player' not in st.session_state:
     st.session_state.audio_player = OptimizedAudioPlayer()
@@ -361,19 +396,15 @@ with col1:
     )
 
 with col2:
-    audio_bytes = st.audio_input("🎤", key="audio_input")
-    if audio_bytes:
-        # Save audio bytes to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
-            f.write(audio_bytes)
-            audio_file = f.name
-        
-        with st.spinner("Processing..."):
-            user_text = transcribe_audio(audio_file)
-            if user_text:
-                process_response(user_text, is_voice=True)
-        os.unlink(audio_file)  # Clean up temp file
-        st.experimental_rerun()
+    if st.button("🎤", help="Record audio"):
+        with st.spinner("Recording..."):
+            audio_file = st.session_state.audio_recorder.record()
+            if audio_file:
+                user_text = transcribe_audio(audio_file)
+                if user_text:
+                    process_response(user_text, is_voice=True)
+                os.unlink(audio_file)  # Clean up temp file
+                st.experimental_rerun()
 
 # Handle text input
 if text_input and text_input != st.session_state.processed_text:
