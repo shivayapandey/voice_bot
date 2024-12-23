@@ -1,4 +1,6 @@
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
+import av
 from st_audiorec import st_audiorec
 import torch
 from typing import List, Dict  # Add typing imports
@@ -144,13 +146,7 @@ class OptimizedAudioPlayer:
         self._stop_event = threading.Event()
         self.VOICE = "en-US-JennyNeural"
         self.audio_enabled = True
-        
-        # Check if audio is available
-        try:
-            pygame.mixer.get_init()
-        except:
-            self.audio_enabled = False
-            st.warning("⚠️ Audio playback is not available on this system.")
+        pygame.mixer.init(frequency=24000)  # Initialize with specific frequency
     
     def stop(self):
         if self.audio_enabled:
@@ -168,45 +164,63 @@ class OptimizedAudioPlayer:
         if not text:
             return
             
-        if not self.audio_enabled:
-            st.warning("⚠️ Audio playback is not available. Displaying text only.")
-            st.write(text)
-            return
-            
         self._stop_event.clear()
         try:
-            # Create temporary file for audio
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
                 temp_path = temp_file.name
-            
-            # Generate speech using Edge TTS
+                
+            # Generate speech
             asyncio.run(self._generate_speech(text, temp_path))
             
-            # Play using pygame if available
-            try:
-                pygame.mixer.music.load(temp_path)
-                pygame.mixer.music.play()
-                
-                # Wait for playback to finish or stop event
-                while pygame.mixer.music.get_busy():
-                    if self._stop_event.is_set():
-                        pygame.mixer.music.stop()
-                        break
-                    time.sleep(0.1)
-            except Exception as e:
-                st.error(f"Playback error: {str(e)}")
-                st.write(text)  # Fallback to displaying text
+            # Ensure previous playback is stopped
+            pygame.mixer.music.unload()
+            pygame.mixer.music.load(temp_path)
+            pygame.mixer.music.play()
             
-            # Cleanup temporary file
+            # Wait for playback to finish
+            while pygame.mixer.music.get_busy():
+                if self._stop_event.is_set():
+                    pygame.mixer.music.stop()
+                    break
+                time.sleep(0.1)
+                
             os.unlink(temp_path)
             
         except Exception as e:
-            st.error(f"🔇 Audio generation error: {str(e)}")
-            st.write(text)  # Fallback to displaying text
+            st.error(f"🔇 Audio error: {str(e)}")
+            st.write(text)
         finally:
             st.session_state.audio_playing = False
 
-# Remove OptimizedAudioRecorder class as we'll use st.audio_input instead
+class AudioProcessor:
+    def __init__(self):
+        self.audio_buffer = []
+        
+    def process_audio(self, frame):
+        self.audio_buffer.extend(frame.to_ndarray().flatten())
+        return frame
+
+# Replace the audio input section with WebRTC recorder
+def record_audio():
+    processor = AudioProcessor()
+    
+    webrtc_ctx = webrtc_streamer(
+        key="audio-recorder",
+        mode=WebRtcMode.SENDONLY,
+        audio_receiver_size=1024,
+        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+        media_stream_constraints={"video": False, "audio": True},
+        async_processing=True,
+        video_processor_factory=None,
+        audio_processor_factory=lambda: processor,
+    )
+    
+    if webrtc_ctx.audio_receiver and len(processor.audio_buffer) > 0:
+        # Convert audio buffer to WAV file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
+            sf.write(f.name, processor.audio_buffer, 16000)
+            return f.name
+    return None
 
 @st.cache_data(ttl=300)
 def transcribe_audio(audio_file: str) -> str:
@@ -322,13 +336,8 @@ with col1:
     )
 
 with col2:
-    wav_audio_data = st_audiorec()
-    if wav_audio_data is not None:
-        # Save audio data to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
-            f.write(wav_audio_data)
-            audio_file = f.name
-            
+    audio_file = record_audio()
+    if audio_file:
         try:
             with st.spinner("Processing audio..."):
                 user_text = transcribe_audio(audio_file)
